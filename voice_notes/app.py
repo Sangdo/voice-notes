@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import models, theme
+from .engine import apple_gpu
 from .summarize import load_summary, summary_path
 from .icons import icon
 from . import speakers
@@ -32,6 +33,10 @@ LABEL_ROLE = Qt.ItemDataRole.UserRole + 2   # speaker label ('S3') on a Speaker 
 TYPING_ROLE = Qt.ItemDataRole.UserRole + 1   # set on a transcript cell while its text is being typed out
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 OFFLINE_TEXT = 'Offline'
+# Summaries run on MLX, which exists only on Apple Silicon Macs.
+SUMMARY_AVAILABLE = apple_gpu()
+MAC = sys.platform == 'darwin'
+THIS_COMPUTER = 'this Mac' if MAC else 'this computer'
 
 
 def load_fonts():
@@ -67,7 +72,11 @@ def worker_process(parent, job):
     proc.setWorkingDirectory(str(PACKAGE_ROOT))
     proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
     proc.setProperty('workdir', str(work))
-    proc.start(sys.executable, ['-m', 'voice_notes.worker', str(work/'job.json')])
+    if getattr(sys, 'frozen', False):
+        # Packaged app: the executable runs the worker itself (see packaging/entry.py).
+        proc.start(sys.executable, ['--worker', str(work/'job.json')])
+    else:
+        proc.start(sys.executable, ['-m', 'voice_notes.worker', str(work/'job.json')])
     return proc
 
 
@@ -220,7 +229,10 @@ class SettingsDialog(QDialog):
         self.summary_model.setCurrentIndex(max(0, self.summary_model.findData(
             prefs.value('summary_model', models.DEFAULT_SUMMARY_MODEL))))
         form.addRow('Show', self.grouping)
-        form.addRow('Summary', self.summary_model)
+        if SUMMARY_AVAILABLE:
+            form.addRow('Summary', self.summary_model)
+        else:
+            self.summary_model.hide()
         speaker_row = QHBoxLayout()
         self.auto_speakers = QCheckBox('Identify after transcribing')
         self.auto_speakers.setChecked(prefs.value('speakers', False, type=bool))
@@ -411,7 +423,7 @@ class SummaryWindow(QDialog):
         self.view.setOpenLinks(False)
         self.view.anchorClicked.connect(self.play_from)
         layout.addWidget(self.view, 1)
-        note = QLabel('🔒 Made offline on this Mac. Click a time to check it against the recording.')
+        note = QLabel('🔒 Made offline on ' + THIS_COMPUTER + '. Click a time to check it against the recording.')
         note.setObjectName('offline')
         layout.addWidget(note)
         self.refresh()
@@ -674,6 +686,7 @@ class Window(QMainWindow):
         self.settings_button.clicked.connect(self.show_settings)
         for b in (self.open_button, self.summary_button, self.export_button, self.run_button, self.settings_button):
             top.addWidget(b)
+        self.summary_button.setVisible(SUMMARY_AVAILABLE)
         outer.addLayout(top)
 
         self.progress = QProgressBar()
@@ -822,6 +835,8 @@ class Window(QMainWindow):
                                 ('Identify Speakers', QKeySequence('Ctrl+Shift+I'), self.identify_speakers),
                                 ('Export…', QKeySequence('Ctrl+E'), self.export),
                                 ('Settings…', QKeySequence.StandardKey.Preferences, self.show_settings)):
+            if text == 'Summary…' and not SUMMARY_AVAILABLE:
+                continue
             action = QAction(text, self)
             action.setShortcut(key)
             action.triggered.connect(slot)
@@ -833,7 +848,7 @@ class Window(QMainWindow):
                 file_menu.addAction(link)
                 self.recent_menu = file_menu.addMenu('Open Recent')
                 self.recent_menu.aboutToShow.connect(self.fill_recent)
-        self.reveal_action = QAction('Show Notes in Finder', self)
+        self.reveal_action = QAction('Show Notes in Finder' if MAC else 'Show Notes in Folder', self)
         self.reveal_action.triggered.connect(self.reveal_notes)
         file_menu.addAction(self.reveal_action)
         QShortcut(QKeySequence.StandardKey.Find, self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
@@ -1025,7 +1040,7 @@ class Window(QMainWindow):
         self.update_queue()
 
     def show_summary(self):
-        if not self.audio:
+        if not self.audio or not SUMMARY_AVAILABLE:
             return
         if not self.summary:
             self.summary = SummaryWindow(self)
@@ -1051,7 +1066,12 @@ class Window(QMainWindow):
     def reveal_notes(self):
         target = self.notes_file if self.notes_file and self.notes_file.is_file() else self.audio
         if target:
-            QProcess.startDetached('open', ['-R', str(target)])
+            if MAC:
+                QProcess.startDetached('open', ['-R', str(target)])
+            elif sys.platform == 'win32':
+                QProcess.startDetached('explorer', ['/select,', str(target)])
+            else:
+                QProcess.startDetached('xdg-open', [str(target.parent)])
 
     def open(self, path, quiet=False):
         if self.job:
@@ -1584,7 +1604,7 @@ class Window(QMainWindow):
         if not speakers.is_downloaded():
             answer = QMessageBox.question(self, 'Download speaker models',
                                           f'Identifying speakers needs two small models ({speakers.SIZE}), '
-                                          'downloaded once.\n\nOnly the models are downloaded. Recordings stay on this Mac.')
+                                          'downloaded once.\n\nOnly the models are downloaded. Recordings stay on ' + THIS_COMPUTER + '.')
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self.diar_status = 'Downloading speaker models…'

@@ -4,6 +4,7 @@ Usage: python -m voice_notes.worker job.json
 Prints one JSON event per line: progress, device, segment, done, error.
 """
 import json
+import os
 from pathlib import Path
 import shutil
 import signal
@@ -16,19 +17,30 @@ def emit(kind, **payload):
     print(json.dumps({'type': kind, **payload}, ensure_ascii=False), flush=True)
 
 
+# Keep FFmpeg from flashing a console window on Windows.
+NO_WINDOW = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+
+
 def tool(name):
+    """FFmpeg tools: the copy bundled with the packaged app first, then the system ones."""
+    exe = name + ('.exe' if os.name == 'nt' else '')
+    if getattr(sys, 'frozen', False):
+        bundled = Path(getattr(sys, '_MEIPASS', Path(sys.executable).parent), 'ffmpeg', exe)
+        if bundled.is_file():
+            return str(bundled)
     found = shutil.which(name)
     for folder in ('/opt/homebrew/bin', '/usr/local/bin'):
         if not found and Path(folder, name).is_file():
             found = str(Path(folder, name))
     if not found:
-        raise RuntimeError(f'{name} was not found. Install FFmpeg (brew install ffmpeg).')
+        hint = 'brew install ffmpeg' if sys.platform == 'darwin' else 'reinstall the app'
+        raise RuntimeError(f'{name} was not found. Install FFmpeg ({hint}).')
     return found
 
 
 def probe_duration(audio):
     out = subprocess.run([tool('ffprobe'), '-v', 'error', '-show_entries', 'format=duration',
-                          '-of', 'csv=p=0', str(audio)], capture_output=True, text=True)
+                          '-of', 'csv=p=0', str(audio)], capture_output=True, text=True, **NO_WINDOW)
     try:
         return float(out.stdout.strip())
     except ValueError:
@@ -62,7 +74,7 @@ def transcribe(job):
     emit('progress', stage='Preparing audio', value=-1)
     wav = work/'audio.wav'
     result = subprocess.run([tool('ffmpeg'), '-nostdin', '-v', 'error', '-ss', str(resume), '-i', str(audio),
-                             '-vn', '-ac', '1', '-ar', '16000', '-y', str(wav)], capture_output=True, text=True)
+                             '-vn', '-ac', '1', '-ar', '16000', '-y', str(wav)], capture_output=True, text=True, **NO_WINDOW)
     if result.returncode:
         raise RuntimeError('Could not convert the audio.\n' + result.stderr.strip()[-400:])
 
@@ -102,7 +114,7 @@ def identify_speakers(job):
     emit('progress', stage='Preparing audio', value=-1)
     wav = work/'audio.wav'
     result = subprocess.run([tool('ffmpeg'), '-nostdin', '-v', 'error', '-i', str(audio), '-vn', '-ac', '1',
-                             '-ar', str(speakers.SAMPLE_RATE), '-y', str(wav)], capture_output=True, text=True)
+                             '-ar', str(speakers.SAMPLE_RATE), '-y', str(wav)], capture_output=True, text=True, **NO_WINDOW)
     if result.returncode:
         raise RuntimeError('Could not convert the audio.\n' + result.stderr.strip()[-400:])
     samples = speakers.read_wav(wav)

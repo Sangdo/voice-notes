@@ -8,3 +8,6 @@ testdata/
 *.mp3
 *.m4a
 *.wav
+build/
+dist/
+packaging/ffmpeg/
