@@ -1,0 +1,11 @@
+PySide6>=6.8,<7
+faster-whisper>=1.2,<2
+# faster-whisper 1.2.1 passes metadata_errors= to av.open, which PyAV 17+ removed.
+av>=16,<17
+huggingface-hub>=0.34
+certifi
+# Offline summaries (local language model, Apple Silicon only).
+mlx-lm>=0.32; sys_platform == "darwin" and platform_machine == "arm64"
+# Speaker identification (offline diarization: pyannote segmentation + TitaNet embeddings via ONNX).
+sherpa-onnx>=2.0
+numpy

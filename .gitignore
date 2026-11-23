@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+# Recordings and their notes stay out of git (court audio may be confidential).
+testdata/
+*.transcript.json
+*.summary.json
+*.mp3
+*.m4a
+*.wav
