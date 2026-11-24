@@ -11,3 +11,4 @@ testdata/
 build/
 dist/
 packaging/ffmpeg/
+voice_notes/build.txt

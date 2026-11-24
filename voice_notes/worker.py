@@ -4,6 +4,7 @@ Usage: python -m voice_notes.worker job.json
 Prints one JSON event per line: progress, device, segment, done, error.
 """
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +12,8 @@ import signal
 import subprocess
 import sys
 import time
+
+log = logging.getLogger('voice_notes.worker')
 
 
 def emit(kind, **payload):
@@ -84,6 +87,7 @@ def transcribe(job):
 
     def on_device(dev):
         nonlocal label
+        log.info('Transcribing on %s · %s', engine.DEVICE_NAMES.get(dev, dev), spec.label)
         label = f'{spec.label} · {engine.DEVICE_NAMES.get(dev, dev)}'
         emit('device', device=dev)
         emit('progress', stage='Transcribing', value=resume/duration if duration else -1)
@@ -98,6 +102,7 @@ def transcribe(job):
             save(out, audio, segments, model=label, complete=False, duration=duration, speakers=names)
             saved = time.monotonic()
     save(out, audio, segments, model=label, complete=True, duration=duration, speakers=names)
+    log.info('Transcribed %d lines · %s', len(segments), label)
     emit('done', path=str(out), count=len(segments), model=label)
 
 
@@ -288,15 +293,36 @@ def fetch(job):
     emit('done', path=str(target))
 
 
+def describe(job):
+    """One log line about the job, without file names (court recordings may be confidential)."""
+    parts = [job['mode']] + [f'{k}={job[k]}' for k in ('model', 'device') if job.get(k)]
+    audio = Path(job['audio']) if job.get('audio') else None
+    if audio and audio.is_file():
+        parts.append(f'audio={audio.suffix.lower() or "?"} {audio.stat().st_size/1e6:.0f} MB')
+    return ' · '.join(parts)
+
+
 def main():
+    from . import log as logfile
     job = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(2))
     try:
+        logfile.setup('worker')
+        logfile.redact(audio=job.get('audio'), notes=job.get('out') or job.get('notes'), link=job.get('url'),
+                       folder=job.get('folder'))
+    except Exception:
+        pass   # logging must never stop the work
+    started = time.monotonic()
+    log.info('Start %s', describe(job))
+    try:
         {'transcribe': transcribe, 'download': download, 'fetch': fetch, 'summarize': summarize,
          'speakers': identify_speakers}[job['mode']](job)
-    except SystemExit:
+        log.info('Finished %s in %.0f s', job['mode'], time.monotonic() - started)
+    except SystemExit as e:
+        log.info('Stopped %s after %.0f s (code %s)', job['mode'], time.monotonic() - started, e.code)
         raise
     except Exception as e:
+        log.exception('Failed %s after %.0f s', job['mode'], time.monotonic() - started)
         emit('error', message=str(e) or type(e).__name__)
         sys.exit(1)
     finally:

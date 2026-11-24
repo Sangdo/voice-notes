@@ -16,11 +16,19 @@ missing = [str(t) for t in tools if not t.is_file()]
 if missing:
     sys.exit('FFmpeg not found: ' + ', '.join(missing))
 
+# Build stamp shown at the top of each log session (voice_notes/log.py).
+import datetime
+import subprocess
+commit = os.environ.get('GITHUB_SHA') or subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
+                                                         capture_output=True, text=True).stdout.strip()
+(ROOT/'voice_notes'/'build.txt').write_text(f"{commit[:7] or 'unknown'} {datetime.date.today()}", encoding='utf-8')
+
 args = [str(ROOT/'packaging'/'entry.py'),
         '--name', 'Voice Notes', '--windowed', '--noconfirm', '--clean',
         '--distpath', str(ROOT/'dist'), '--workpath', str(ROOT/'build'), '--specpath', str(ROOT/'build'),
         '--paths', str(ROOT),
         '--add-data', f'{ROOT/"voice_notes"/"fonts"}{os.pathsep}voice_notes/fonts',
+        '--add-data', f'{ROOT/"voice_notes"/"build.txt"}{os.pathsep}voice_notes',
         # Native libraries and model assets these packages load at run time.
         '--collect-all', 'faster_whisper', '--collect-all', 'ctranslate2', '--collect-all', 'sherpa_onnx',
         '--collect-all', 'av', '--collect-all', 'onnxruntime', '--collect-data', 'certifi',

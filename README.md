@@ -37,6 +37,15 @@ FFmpeg가 필요합니다 (`brew install ffmpeg`).
 - **Still (yellow)**: 기본. `translator` 앱과 같은 시스템 글꼴, 노란 강조색, 알약 모양 버튼.
 - **Classic (orange)**: 이전 디자인(`video` 앱과 동일).
 
+## 로그 (문제 해결용)
+
+**Help → Show Log File**로 로그 파일 위치를 엽니다. 문제가 생기면 이 파일을 보내 주세요.
+
+- Mac: `~/Library/Logs/Voice Notes/voice-notes.log`
+- Windows: `%LOCALAPPDATA%\Voice Notes\Logs\voice-notes.log`
+
+작업 시작·끝·걸린 시간, 사용한 장치(GPU/CPU)와 GPU를 못 쓴 이유, 오류 전체 내용, 비정상 종료 위치가 남습니다. 녹음 파일 이름과 전사 내용은 남기지 않습니다(형식·크기만, 오류 메시지 속 경로는 `<audio>`로 바꿈). 2 MB가 넘으면 다음 실행 때 `voice-notes.old.log`로 옮깁니다.
+
 ## 개인정보 · 오프라인
 
 - 전사와 요약은 별도 프로세스에서 실행되며, 시작 시 `voice_notes/offline.py`가 루프백 외의 모든 네트워크 연결과 DNS 조회를 차단합니다. Hugging Face도 오프라인 모드로 고정됩니다.

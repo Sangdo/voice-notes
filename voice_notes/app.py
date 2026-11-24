@@ -2,6 +2,7 @@
 import bisect
 import html
 import json
+import logging
 from pathlib import Path
 import re
 import shutil
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 from . import models, theme
 from .engine import DEVICE_NAMES, apple_gpu
 from . import gpu
+from . import log as logfile
 from .summarize import load_summary, summary_path
 from .icons import icon
 from . import speakers
@@ -34,6 +36,7 @@ LABEL_ROLE = Qt.ItemDataRole.UserRole + 2   # speaker label ('S3') on a Speaker 
 TYPING_ROLE = Qt.ItemDataRole.UserRole + 1   # set on a transcript cell while its text is being typed out
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 OFFLINE_TEXT = 'Offline'
+log = logging.getLogger('voice_notes.app')
 # Summaries run on MLX, which exists only on Apple Silicon Macs.
 SUMMARY_AVAILABLE = apple_gpu()
 MAC = sys.platform == 'darwin'
@@ -77,6 +80,12 @@ def worker_process(parent, job):
     proc.setWorkingDirectory(str(PACKAGE_ROOT))
     proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
     proc.setProperty('workdir', str(work))
+    mode = job['mode']
+    # Worker warnings and crashes go to stderr; keep them in the log (file names are redacted by the worker's
+    # own log lines, but stderr is raw, so only the last lines of a failure are kept).
+    proc.readyReadStandardError.connect(lambda: proc.setProperty(
+        'stderr', ((proc.property('stderr') or '') + bytes(proc.readAllStandardError()).decode('utf-8', 'replace'))[-4000:]))
+    proc.finished.connect(lambda code, status: worker_finished(proc, mode, code, status))
     if getattr(sys, 'frozen', False):
         # Packaged app: the executable runs the worker itself (see packaging/entry.py).
         proc.start(sys.executable, ['--worker', str(work/'job.json')])
@@ -98,6 +107,27 @@ def read_events(proc):
 
 def downloads_folder():
     return Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation) or Path.home()/'Downloads')
+
+
+def worker_finished(proc, mode, code, status):
+    crashed = status == QProcess.ExitStatus.CrashExit
+    if code == 0 and not crashed:
+        return
+    tail = logfile.scrub((proc.property('stderr') or '').strip())
+    tail = '\n'.join(line for line in tail.splitlines() if 'Warning' not in line)[-2000:]
+    log.warning('Worker %s %s (exit code %s)%s', mode, 'crashed' if crashed else 'ended', code,
+                '\n' + tail if tail else '')
+
+
+def reveal(target):
+    """Show a file in Finder or Explorer."""
+    target = Path(target)
+    if MAC:
+        QProcess.startDetached('open', ['-R', str(target)])
+    elif sys.platform == 'win32':
+        QProcess.startDetached('explorer', ['/select,', str(target)])
+    else:
+        QProcess.startDetached('xdg-open', [str(target.parent)])
 
 
 def cleanup(proc):
@@ -914,6 +944,8 @@ class Window(QMainWindow):
         self.reveal_action = QAction('Show Notes in Finder' if MAC else 'Show Notes in Folder', self)
         self.reveal_action.triggered.connect(self.reveal_notes)
         file_menu.addAction(self.reveal_action)
+        help_menu = self.menuBar().addMenu('Help')
+        help_menu.addAction('Show Log File', lambda: reveal(logfile.path()))
         QShortcut(QKeySequence.StandardKey.Find, self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self.toggle_play)
         QShortcut(QKeySequence(Qt.Key.Key_Left), self, activated=lambda: self.skip(-10))
@@ -1129,12 +1161,7 @@ class Window(QMainWindow):
     def reveal_notes(self):
         target = self.notes_file if self.notes_file and self.notes_file.is_file() else self.audio
         if target:
-            if MAC:
-                QProcess.startDetached('open', ['-R', str(target)])
-            elif sys.platform == 'win32':
-                QProcess.startDetached('explorer', ['/select,', str(target)])
-            else:
-                QProcess.startDetached('xdg-open', [str(target.parent)])
+            reveal(target)
 
     def open(self, path, quiet=False):
         if self.job:
@@ -1832,6 +1859,12 @@ class Window(QMainWindow):
 
 
 def main():
+    try:
+        logfile.setup('app')
+    except Exception:
+        pass   # logging must never stop the app
+    log.info('GPU: %s', 'Apple Silicon' if apple_gpu() else
+             ('NVIDIA · support ' + ('ready' if gpu.is_installed() else 'not downloaded')) if gpu.supported() else 'none')
     app = QApplication(sys.argv)
     app.setApplicationName('Voice Notes')
     window = Window()

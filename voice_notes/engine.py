@@ -3,8 +3,11 @@
 To add a backend (e.g. mlx-whisper), write a generator with the same signature and
 register it in BACKENDS; then point a ModelSpec at it in models.py.
 """
+import logging
 import os
 import platform
+
+log = logging.getLogger('voice_notes.engine')
 
 
 def apple_gpu():
@@ -18,9 +21,13 @@ def candidates(device):
     if apple_gpu():
         return ['mps', 'cpu']
     from . import gpu
-    if gpu.enable():
+    if gpu.supported() and not gpu.enable():
+        log.info('NVIDIA GPU found but GPU support is not downloaded: using CPU')
+    elif gpu.supported():
         import ctranslate2
-        if ctranslate2.get_cuda_device_count() > 0:
+        count = ctranslate2.get_cuda_device_count()
+        log.info('NVIDIA GPU support ready · %d CUDA device(s) · ctranslate2 %s', count, ctranslate2.__version__)
+        if count > 0:
             return ['cuda', 'cpu']
     return ['cpu']
 
@@ -58,6 +65,7 @@ def faster_whisper(spec, model_dir, wav, *, device='auto', hint='', on_device=No
             # have been written, stop instead: the app resumes from the saved notes.
             if last or produced:
                 raise
+            log.warning('%s failed, trying %s', DEVICE_NAMES.get(dev, dev), devices[i + 1], exc_info=True)
 
 
 BACKENDS = {'faster-whisper': faster_whisper}

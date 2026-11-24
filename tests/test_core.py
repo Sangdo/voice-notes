@@ -84,12 +84,14 @@ def test_worker_reports_missing_model(tmp_path, monkeypatch):
     job = tmp_path/'job.json'
     job.write_text(json.dumps({'mode': 'transcribe', 'audio': str(audio), 'out': str(tmp_path/'o.json'),
                                'workdir': str(tmp_path), 'model': 'turbo'}))
-    env = {'HF_HUB_CACHE': str(tmp_path/'empty'), 'PATH': '/usr/bin:/bin'}
+    env = {'HF_HUB_CACHE': str(tmp_path/'empty'), 'PATH': '/usr/bin:/bin', 'VOICE_NOTES_LOG_DIR': str(tmp_path)}
     out = subprocess.run([sys.executable, '-m', 'voice_notes.worker', str(job)], cwd=ROOT,
                          capture_output=True, text=True, env=env)
     assert out.returncode == 1
     event = json.loads(out.stdout.strip().splitlines()[-1])
     assert event['type'] == 'error' and 'Download it in Settings' in event['message']
+    logged = (tmp_path/'voice-notes.log').read_text()
+    assert 'Start transcribe' in logged and 'not downloaded yet' in logged
 
 
 def test_notes_folder_keeps_same_named_recordings_apart(tmp_path):
@@ -168,3 +170,12 @@ def test_export_by_paragraph():
     text = to_text('h.mp3', segs, groups=[[0, 1]])
     assert '[00:00] ★ Good morning. May it please the Court.' in text
     assert '    Note: opening' in text
+
+
+def test_log_hides_recording_names(tmp_path):
+    from voice_notes import log as logfile
+    audio = tmp_path/'Smith v Jones sealed.m4a'
+    logfile.redact(audio=str(audio))
+    text = logfile.scrub(f"{audio}: Invalid data · Smith v Jones sealed.transcript.json")
+    assert 'Smith' not in text and '<audio>' in text
+    logfile._redactions.clear()
