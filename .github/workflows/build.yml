@@ -12,7 +12,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +63,9 @@ jobs:
         shell: pwsh
         run: |
           foreach ($round in 1, 2) {
-            $p = Start-Process dist\VoiceNotes-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+            # WaitForExit waits for the installer only (Start-Process -Wait would also wait for anything it opens).
+            $p = Start-Process dist\VoiceNotes-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOLAUNCH' -PassThru
+            if (-not $p.WaitForExit(600000)) { Write-Error "install $round timed out"; exit 1 }
             if ($p.ExitCode -ne 0) { Write-Error "install $round failed: $($p.ExitCode)"; exit 1 }
           }
           $exe = "$env:LOCALAPPDATA\Programs\Voice Notes\Voice Notes.exe"

@@ -46,5 +46,16 @@ Name: "{autodesktop}\Voice Notes"; Filename: "{app}\Voice Notes.exe"; Tasks: des
 
 [Run]
 Filename: "{app}\Voice Notes.exe"; Description: "Open Voice Notes"; Flags: nowait postinstall skipifsilent
-; In-app updates run the installer silently: reopen the app when done.
-Filename: "{app}\Voice Notes.exe"; Flags: nowait; Check: WizardSilent
+; In-app updates run the installer silently: reopen the app when done (not with /NOLAUNCH, used by CI).
+Filename: "{app}\Voice Notes.exe"; Flags: nowait; Check: ShouldRelaunch
+
+[Code]
+function ShouldRelaunch: Boolean;
+var
+  i: Integer;
+begin
+  Result := WizardSilent;
+  for i := 1 to ParamCount do
+    if CompareText(ParamStr(i), '/NOLAUNCH') = 0 then
+      Result := False;
+end;
