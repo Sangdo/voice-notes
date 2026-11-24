@@ -55,6 +55,8 @@ ModelSpec('distil', 'Distil-Whisper large-v3', 'Systran/faster-distil-whisper-la
 
 실행 장치 기본값은 **Automatic**입니다. Apple Silicon에서는 ctranslate2의 Metal(MPS) 백엔드를 먼저 시도하고, 실패하면 CPU로 실행합니다.
 
+Windows에서 NVIDIA 그래픽카드가 있으면 설정의 **NVIDIA GPU → Download**(1.3 GB, 한 번만)로 NVIDIA 라이브러리(cuBLAS·cuDNN)를 받습니다. 그다음부터 전사는 GPU로 먼저 실행하고, GPU가 시작되지 않으면(오래된 드라이버, 메모리 부족 등) CPU로 실행합니다. 라이브러리는 PyPI의 NVIDIA 공식 패키지에서 받아 SHA-256을 확인합니다(`voice_notes/gpu.py`).
+
 ## 정확도 측정
 
 공개된 미국 대법원 구두변론(녹음 + 공식 속기록 PDF)으로 비교합니다.

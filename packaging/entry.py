@@ -41,6 +41,11 @@ def selftest():
     names = [f.lower() for _, _, files in os.walk(bundle) for f in files]
     for want in ('ffmpegmediaplugin', 'avcodec', 'avformat', 'swresample'):
         assert any(want in n for n in names), f'{want} missing from the bundle'
+    if os.name == 'nt':
+        from voice_notes import gpu
+        cudnn = gpu.file_version(os.path.join(os.path.dirname(ctranslate2.__file__), 'cudnn64_9.dll'))
+        assert cudnn and cudnn.startswith('9.'), f'cuDNN loader version not readable: {cudnn}'
+        print('GPU support: cuDNN', cudnn, '| packages', gpu.packages())
     print('ctranslate2', ctranslate2.__version__, '| av', av.__version__, '| sherpa-onnx', sherpa_onnx.__version__)
     print('selftest ok')
 

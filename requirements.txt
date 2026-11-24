@@ -1,5 +1,7 @@
 PySide6>=6.8,<7
 faster-whisper>=1.2,<2
+# Windows NVIDIA support downloads CUDA 12 / cuDNN 9 libraries matched to this build (voice_notes/gpu.py).
+ctranslate2==4.9.1; sys_platform == "win32"
 # faster-whisper 1.2.1 passes metadata_errors= to av.open, which PyAV 17+ removed.
 av>=16,<17
 huggingface-hub>=0.34

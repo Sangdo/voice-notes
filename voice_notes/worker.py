@@ -84,7 +84,7 @@ def transcribe(job):
 
     def on_device(dev):
         nonlocal label
-        label = f"{spec.label} · {'Mac GPU' if dev == 'mps' else 'CPU'}"
+        label = f'{spec.label} · {engine.DEVICE_NAMES.get(dev, dev)}'
         emit('device', device=dev)
         emit('progress', stage='Transcribing', value=resume/duration if duration else -1)
 
@@ -213,6 +213,12 @@ def download_model(spec):
 
 
 def download(job):
+    if job['model'] == 'gpu':
+        from . import gpu
+        meter = Meter('Downloading GPU support', 0)
+        gpu.download(on_progress=lambda n, total: (setattr(meter, 'total', total), meter.add(n)))
+        emit('done', model='gpu')
+        return
     if job['model'] == 'speakers':
         from . import speakers
         meter = Meter('Downloading speaker models', 0)

@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import models, theme
-from .engine import apple_gpu
+from .engine import DEVICE_NAMES, apple_gpu
+from . import gpu
 from .summarize import load_summary, summary_path
 from .icons import icon
 from . import speakers
@@ -252,6 +253,17 @@ class SettingsDialog(QDialog):
         speaker_row.addWidget(self.auto_speakers, 1)
         speaker_row.addWidget(self.speaker_download)
         form.addRow('Speakers', speaker_row)
+        if gpu.supported():
+            gpu_row = QHBoxLayout()
+            self.gpu_state = QLabel()
+            self.gpu_state.setObjectName('meta')
+            self.gpu_download = QPushButton(f'Download ({gpu.SIZE})')
+            self.gpu_download.setToolTip('NVIDIA libraries for faster transcription, downloaded once.')
+            self.gpu_download.clicked.connect(self.download_gpu)
+            gpu_row.addWidget(self.gpu_state, 1)
+            gpu_row.addWidget(self.gpu_download)
+            form.addRow('NVIDIA GPU', gpu_row)
+            self.update_gpu()
         form.addRow('Notes', folder_row)
         form.addRow('Theme', self.theme)
         form.addRow('', self.typing)
@@ -316,6 +328,30 @@ class SettingsDialog(QDialog):
         self.download.finished.connect(self.download_finished)
         self.update_buttons()
 
+    def update_gpu(self):
+        if hasattr(self, 'gpu_state'):
+            ready = gpu.is_installed()
+            self.gpu_state.setText('Ready · used automatically' if ready else 'Not set up · transcribing on CPU')
+            self.gpu_download.setVisible(not ready)
+            self.gpu_download.setEnabled(self.download is None)
+
+    def download_gpu(self):
+        if self.download:
+            return
+        answer = QMessageBox.question(
+            self, 'Download GPU support',
+            f'Download NVIDIA GPU support ({gpu.SIZE})?\n\nIt makes transcription several times faster on this '
+            'NVIDIA card. Only NVIDIA libraries are downloaded. Keep this window open until it finishes.')
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.download_status.setText('Connecting…')
+        self.show_busy()
+        self.download = worker_process(self, {'mode': 'download', 'model': 'gpu'})
+        self.download.readyReadStandardOutput.connect(self.download_events)
+        self.download.finished.connect(self.download_finished)
+        self.update_buttons()
+        self.update_gpu()
+
     def selected(self):
         item = self.list.currentItem()
         return models.get(item.data(Qt.ItemDataRole.UserRole)) if item else None
@@ -361,6 +397,7 @@ class SettingsDialog(QDialog):
         proc, self.download = self.download, None
         cleanup(proc)
         self.download_bar.hide()
+        self.update_gpu()
         self.speaker_download.setVisible(not speakers.is_downloaded())
         self.speaker_download.setEnabled(True)
         if code == 0:
@@ -1474,7 +1511,7 @@ class Window(QMainWindow):
             elif kind == 'progress':
                 self.set_progress(event['value'], event['stage'])
             elif kind == 'device':
-                self.job_model = f"{self.job_model} · {'Mac GPU' if event['device'] == 'mps' else 'CPU'}"
+                self.job_model = f"{self.job_model.split(' · ')[0]} · {DEVICE_NAMES.get(event['device'], event['device'])}"
             elif kind == 'done':
                 self.meta['model'] = event['model']
                 self.meta['complete'] = True
