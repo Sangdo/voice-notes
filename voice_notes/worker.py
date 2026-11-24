@@ -157,18 +157,71 @@ def summarize(job):
     emit('done', path=job['out'])
 
 
+class Meter:
+    """Counts downloaded bytes from any thread and reports them about four times a second."""
+
+    def __init__(self, stage, total):
+        import threading
+        self.stage, self.total, self.got, self.shown = stage, total, 0, 0.0
+        self.lock = threading.Lock()
+
+    def add(self, n):
+        with self.lock:
+            self.got = max(0, self.got + (n or 0))
+            if time.monotonic() - self.shown > .25:
+                self.report()
+
+    def report(self):
+        self.shown = time.monotonic()
+        value = min(1.0, self.got/self.total) if self.total else -1
+        emit('progress', stage=self.stage, value=value, bytes=self.got, total=self.total)
+
+
+def download_model(spec):
+    """Download a Hugging Face model file by file, reporting bytes (folder size alone does not move: newer
+    downloads write each file only when it is complete)."""
+    # Plain HTTP: it reports bytes as they arrive. Xet downloads report written bytes only at the end of each
+    # file, so a large model would sit at 0 % and then jump to 100 %.
+    os.environ['HF_HUB_DISABLE_XET'] = '1'
+    from huggingface_hub import HfApi, constants, hf_hub_download
+    from tqdm.auto import tqdm
+    constants.HF_HUB_DISABLE_XET = True
+    emit('progress', stage='Connecting', value=-1)
+    info = HfApi().model_info(spec.repo, files_metadata=True)
+    files = [(f.rfilename, f.size or 0) for f in info.siblings]
+    meter = Meter(f'Downloading {spec.label}', sum(size for _, size in files))
+    meter.report()
+
+    class Bar(tqdm):
+        def __init__(self, *args, **kwargs):
+            # Xet downloads open a second bar for network bytes; count only bytes written to the file.
+            self.counts = 'downloading bytes' not in str(kwargs.get('desc', ''))
+            if self.counts:
+                meter.add(kwargs.get('initial') or 0)
+            kwargs['disable'] = True
+            super().__init__(*args, **kwargs)
+
+        def update(self, n=1):
+            if self.counts:
+                meter.add(n)
+
+    for name, size in files:
+        before = meter.got
+        hf_hub_download(spec.repo, name, revision=info.sha, tqdm_class=Bar)
+        meter.add(before + size - meter.got)   # count files that were cached or reported no progress
+    meter.report()
+
+
 def download(job):
     if job['model'] == 'speakers':
         from . import speakers
-        speakers.download(lambda name: emit('progress', stage=f'Downloading {name}', value=-1))
+        meter = Meter('Downloading speaker models', 0)
+        speakers.download(on_progress=lambda n, total: (setattr(meter, 'total', total), meter.add(n)))
         emit('done', model='speakers')
         return
-    from huggingface_hub import snapshot_download
     from . import models
-    spec = models.get(job['model'])
-    emit('progress', stage=f'Downloading {spec.label} ({spec.size})', value=-1)
-    snapshot_download(spec.repo)
-    emit('done', model=spec.id)
+    download_model(models.get(job['model']))
+    emit('done', model=job['model'])
 
 
 AUDIO_TYPES = ('.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus', '.wma', '.mp4', '.mov', '.m4v', '.webm')

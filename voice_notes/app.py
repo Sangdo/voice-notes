@@ -62,6 +62,10 @@ def app_data():
     return path
 
 
+def size_text(n):
+    return f'{n/1e9:.2f} GB' if n >= 1e9 else f'{n/1e6:.0f} MB'
+
+
 def worker_process(parent, job):
     """Start `python -m voice_notes.worker` on a job file inside its own temporary folder."""
     work = app_data()/'jobs'/uuid.uuid4().hex
@@ -182,6 +186,12 @@ class SettingsDialog(QDialog):
         row.addWidget(self.download_button)
         row.addWidget(self.download_status, 1)
         layout.addLayout(row)
+        self.download_bar = QProgressBar()
+        self.download_bar.setRange(0, 1000)
+        self.download_bar.setTextVisible(False)
+        self.download_bar.setFixedHeight(6)
+        self.download_bar.hide()
+        layout.addWidget(self.download_bar)
         self.list.currentItemChanged.connect(lambda *_: self.update_buttons())
 
         form = QFormLayout()
@@ -299,6 +309,7 @@ class SettingsDialog(QDialog):
         if self.download:
             return
         self.download_status.setText('Downloading speaker models…')
+        self.show_busy()
         self.speaker_download.setEnabled(False)
         self.download = worker_process(self, {'mode': 'download', 'model': 'speakers'})
         self.download.readyReadStandardOutput.connect(self.download_events)
@@ -321,20 +332,35 @@ class SettingsDialog(QDialog):
             f'Download {spec.label} ({spec.size})?\n\nOnly the model is downloaded.')
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self.download_status.setText('Downloading…')
+        self.download_status.setText('Connecting…')
+        self.show_busy()
         self.download = worker_process(self, {'mode': 'download', 'model': spec.id})
         self.download.readyReadStandardOutput.connect(self.download_events)
         self.download.finished.connect(self.download_finished)
         self.update_buttons()
 
+    def show_busy(self):
+        self.download_bar.setRange(0, 0)   # moving bar until the size is known
+        self.download_bar.show()
+
     def download_events(self):
         for event in read_events(self.download):
-            if event['type'] == 'error':
+            if event['type'] == 'progress':
+                if event['value'] < 0:
+                    self.download_bar.setRange(0, 0)
+                    self.download_status.setText(event['stage'] + '…')
+                else:
+                    self.download_bar.setRange(0, 1000)
+                    self.download_bar.setValue(int(event['value']*1000))
+                    self.download_status.setText(f"{event['stage']} · {size_text(event.get('bytes', 0))} of "
+                                                 f"{size_text(event.get('total', 0))} · {event['value']:.0%}")
+            elif event['type'] == 'error':
                 self.download_status.setText('Download failed: ' + event['message'][:200])
 
     def download_finished(self, code, _status):
         proc, self.download = self.download, None
         cleanup(proc)
+        self.download_bar.hide()
         self.speaker_download.setVisible(not speakers.is_downloaded())
         self.speaker_download.setEnabled(True)
         if code == 0:

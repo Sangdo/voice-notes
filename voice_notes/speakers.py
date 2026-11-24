@@ -34,7 +34,6 @@ def is_downloaded():
 
 def download(on_progress=None):
     """Fetch the two models (the only network use; called from the worker's download mode)."""
-    import shutil
     import ssl
     import tarfile
     import tempfile
@@ -42,16 +41,20 @@ def download(on_progress=None):
     import certifi
     FOLDER.mkdir(parents=True, exist_ok=True)
     context = ssl.create_default_context(cafile=certifi.where())
-    for name, url in FILES.items():
-        if (FOLDER/name).is_file():
-            continue
-        if on_progress:
-            on_progress(Path(url).name)
-        with tempfile.TemporaryDirectory(dir=FOLDER) as tmp:
+    todo = {name: url for name, url in FILES.items() if not (FOLDER/name).is_file()}
+    if not todo:
+        return
+    responses = [urlopen(Request(url, headers={'User-Agent': 'VoiceNotes/1.0'}), timeout=60, context=context)
+                 for url in todo.values()]
+    total = sum(int(r.headers.get('Content-Length') or 0) for r in responses)
+    for (name, url), r in zip(todo.items(), responses):
+        with r, tempfile.TemporaryDirectory(dir=FOLDER) as tmp:
             target = Path(tmp)/Path(url).name
-            with urlopen(Request(url, headers={'User-Agent': 'VoiceNotes/1.0'}), timeout=60, context=context) as r, \
-                    target.open('wb') as f:
-                shutil.copyfileobj(r, f)
+            with target.open('wb') as f:
+                while chunk := r.read(1 << 16):
+                    f.write(chunk)
+                    if on_progress:
+                        on_progress(len(chunk), total)
             if target.suffix == '.bz2':
                 with tarfile.open(target) as tar:
                     tar.extractall(FOLDER, filter='data')
