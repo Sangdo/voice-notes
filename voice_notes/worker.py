@@ -235,6 +235,57 @@ def download(job):
     emit('done', model=job['model'])
 
 
+def check_update(job):
+    """Latest release on GitHub (only when the user asks)."""
+    from urllib.request import Request, urlopen
+    import ssl
+    import certifi
+    from . import update
+    emit('progress', stage='Checking for updates', value=-1)
+    context = ssl.create_default_context(cafile=certifi.where())
+    request = Request(update.LATEST, headers={'User-Agent': 'VoiceNotes', 'Accept': 'application/vnd.github+json'})
+    try:
+        with urlopen(request, timeout=20, context=context) as r:
+            release = json.load(r)
+    except Exception as e:
+        if getattr(e, 'code', None) == 404:
+            raise RuntimeError('No updates have been published yet.') from None
+        raise RuntimeError(f'Could not reach the update server ({e}).') from None
+    latest, notes, asset = update.pick(release)
+    log.info('Update check: this %s · latest %s', update.version(), latest)
+    emit('done', latest=latest, notes=notes[:1500], asset=asset,
+         newer=update.newer(latest, update.version()) and asset is not None)
+
+
+def get_update(job):
+    """Download the installer and check it against the SHA-256 GitHub reports."""
+    from urllib.request import Request, urlopen
+    import hashlib
+    import ssl
+    import certifi
+    from . import update
+    asset, folder = job['asset'], Path(job['folder'])
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder/update.ASSET
+    part = target.with_name(target.name + '.part')
+    meter = Meter('Downloading update', asset.get('size') or 0)
+    digest = hashlib.sha256()
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urlopen(Request(asset['url'], headers={'User-Agent': 'VoiceNotes'}), timeout=60, context=context) as r, \
+            part.open('wb') as f:
+        if not meter.total:
+            meter.total = int(r.headers.get('Content-Length') or 0)
+        while chunk := r.read(1 << 20):
+            f.write(chunk)
+            digest.update(chunk)
+            meter.add(len(chunk))
+    if asset.get('sha256') and digest.hexdigest() != asset['sha256']:
+        part.unlink(missing_ok=True)
+        raise RuntimeError('The update did not download correctly. Try again.')
+    part.replace(target)
+    emit('done', path=str(target))
+
+
 AUDIO_TYPES = ('.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus', '.wma', '.mp4', '.mov', '.m4v', '.webm')
 
 
@@ -316,7 +367,7 @@ def main():
     log.info('Start %s', describe(job))
     try:
         {'transcribe': transcribe, 'download': download, 'fetch': fetch, 'summarize': summarize,
-         'speakers': identify_speakers}[job['mode']](job)
+         'speakers': identify_speakers, 'check_update': check_update, 'get_update': get_update}[job['mode']](job)
         log.info('Finished %s in %.0f s', job['mode'], time.monotonic() - started)
     except SystemExit as e:
         log.info('Stopped %s after %.0f s (code %s)', job['mode'], time.monotonic() - started, e.code)

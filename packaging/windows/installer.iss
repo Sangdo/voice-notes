@@ -46,3 +46,5 @@ Name: "{autodesktop}\Voice Notes"; Filename: "{app}\Voice Notes.exe"; Tasks: des
 
 [Run]
 Filename: "{app}\Voice Notes.exe"; Description: "Open Voice Notes"; Flags: nowait postinstall skipifsilent
+; In-app updates run the installer silently: reopen the app when done.
+Filename: "{app}\Voice Notes.exe"; Flags: nowait; Check: WizardSilent

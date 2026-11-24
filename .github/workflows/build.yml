@@ -37,6 +37,8 @@ jobs:
           Get-ChildItem packaging/ffmpeg
 
       - name: Build app
+        env:
+          APP_VERSION: 1.0.${{ github.run_number }}
         run: python packaging/build.py
 
       - name: Self-test the bundle
@@ -75,5 +77,5 @@ jobs:
         shell: pwsh
         run: |
           $version = "v1.0.${{ github.run_number }}"
-          $notes = "Windows: download VoiceNotes-Setup.exe and run it. Installing over an older version updates it; models, settings and notes are kept."
+          $notes = "Windows: download VoiceNotes-Setup.exe and run it, or use Help > Check for Updates in the app. Installing over an older version updates it; models, settings and notes are kept."
           gh release create $version dist\VoiceNotes-Setup.exe --target ${{ github.sha }} --title "Voice Notes $version" --notes $notes

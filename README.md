@@ -14,7 +14,7 @@ FFmpeg가 필요합니다 (`brew install ffmpeg`).
 
 ### Windows 설치·업데이트
 
-GitHub **Releases**에서 `VoiceNotes-Setup.exe`를 받아 실행합니다(관리자 권한 불필요, 시작 메뉴에 등록). 새 버전도 같은 방법으로 설치하면 실행 중인 앱을 닫고 업데이트합니다. 모델·설정·노트·로그는 프로그램 폴더 밖에 있어 업데이트나 제거 후에도 남습니다. `main`에 코드를 올리면 GitHub Actions가 빌드·설치 테스트를 거쳐 새 릴리스를 만듭니다(`.github/workflows/build.yml`, `packaging/`).
+GitHub **Releases**에서 `VoiceNotes-Setup.exe`를 받아 실행합니다(관리자 권한 불필요, 시작 메뉴에 등록). 앱의 **Help → Check for Updates…**를 누르면 새 버전을 확인하고, 받아서 설치한 뒤 다시 엽니다(이때만 인터넷 사용, 설치 파일의 SHA-256 확인). 새 `VoiceNotes-Setup.exe`를 직접 받아 실행해도 업데이트됩니다. 모델·설정·노트·로그는 프로그램 폴더 밖에 있어 업데이트나 제거 후에도 남습니다. `main`에 코드를 올리면 GitHub Actions가 빌드·설치 테스트를 거쳐 새 릴리스를 만듭니다(`.github/workflows/build.yml`, `packaging/`).
 
 ## 사용
 

@@ -21,7 +21,9 @@ import datetime
 import subprocess
 commit = os.environ.get('GITHUB_SHA') or subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
                                                          capture_output=True, text=True).stdout.strip()
-(ROOT/'voice_notes'/'build.txt').write_text(f"{commit[:7] or 'unknown'} {datetime.date.today()}", encoding='utf-8')
+version = os.environ.get('APP_VERSION', '0.0.0')   # CI: 1.0.<run number>
+(ROOT/'voice_notes'/'build.txt').write_text(f"{version} {commit[:7] or 'unknown'} {datetime.date.today()}",
+                                            encoding='utf-8')
 
 args = [str(ROOT/'packaging'/'entry.py'),
         '--name', 'Voice Notes', '--windowed', '--noconfirm', '--clean',

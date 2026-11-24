@@ -47,6 +47,9 @@ def selftest():
         assert cudnn and cudnn.startswith('9.'), f'cuDNN loader version not readable: {cudnn}'
         print('GPU support: cuDNN', cudnn, '| packages', gpu.packages())
     print('ctranslate2', ctranslate2.__version__, '| av', av.__version__, '| sherpa-onnx', sherpa_onnx.__version__)
+    from voice_notes import update
+    assert update.version(), 'build version missing'
+    print('version', update.version(), '| updates', update.supported())
     print('selftest ok')
 
 

@@ -16,7 +16,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QInputDialog,
                                QMenu,
                                QFileDialog, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar,
+                               QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QProgressDialog,
                                QPushButton, QSlider, QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                                QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -24,6 +24,7 @@ from . import models, theme
 from .engine import DEVICE_NAMES, apple_gpu
 from . import gpu
 from . import log as logfile
+from . import update
 from .summarize import load_summary, summary_path
 from .icons import icon
 from . import speakers
@@ -711,6 +712,7 @@ class Window(QMainWindow):
         self.meta = {}
         self.job = None
         self.job_started = 0.0
+        self.updater = Updater(self)
         self.current_row = -1
         self.loading = False
         self.queue = []          # recordings waiting to be transcribed, in order
@@ -946,6 +948,10 @@ class Window(QMainWindow):
         file_menu.addAction(self.reveal_action)
         help_menu = self.menuBar().addMenu('Help')
         help_menu.addAction('Show Log File', lambda: reveal(logfile.path()))
+        if update.supported():
+            help_menu.addAction('Check for Updates…', self.updater.check)
+        help_menu.addSeparator()
+        help_menu.addAction(f"Voice Notes {update.version() or '(development)'}").setEnabled(False)
         QShortcut(QKeySequence.StandardKey.Find, self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self.toggle_play)
         QShortcut(QKeySequence(Qt.Key.Key_Left), self, activated=lambda: self.skip(-10))
@@ -1848,6 +1854,8 @@ class Window(QMainWindow):
         if self.fetch:
             self.fetch.kill()
             self.fetch.waitForFinished(2000)
+        if self.updater.proc:
+            self.updater.proc.kill()
         if self.summary:
             self.summary.stop_all()
         for proc in (self.diar, getattr(self, 'diar_fetch', None)):
@@ -1856,6 +1864,91 @@ class Window(QMainWindow):
                 proc.waitForFinished(2000)
         self.save_now()
         super().closeEvent(event)
+
+
+class Updater:
+    """Help > Check for Updates (installed Windows app): check, ask, download with progress, run the installer
+    and close. The installer closes any leftover window, updates in place and reopens the app."""
+
+    def __init__(self, window):
+        self.window = window
+        self.proc = None
+        self.dialog = None
+
+    def check(self):
+        if not self.proc:
+            self.start({'mode': 'check_update'}, 'Checking for updates…', self.checked)
+
+    def start(self, job, text, on_done):
+        self.result, self.error = None, None
+        self.dialog = QProgressDialog(text, 'Cancel', 0, 0, self.window)
+        self.dialog.setWindowTitle('Update')
+        self.dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.dialog.setMinimumDuration(0)
+        self.dialog.setMinimumWidth(380)
+        self.dialog.canceled.connect(self.cancel)
+        self.proc = worker_process(self.window, job)
+        self.proc.readyReadStandardOutput.connect(self.events)
+        self.proc.finished.connect(lambda *_: self.finished(on_done))
+        self.dialog.show()
+
+    def events(self):
+        for event in read_events(self.proc):
+            if event['type'] == 'progress' and event['value'] >= 0:
+                self.dialog.setRange(0, 1000)
+                self.dialog.setValue(int(event['value']*1000))
+                self.dialog.setLabelText(f"Downloading update · {size_text(event.get('bytes', 0))} of "
+                                         f"{size_text(event.get('total', 0))}")
+            elif event['type'] == 'done':
+                self.result = event
+            elif event['type'] == 'error':
+                self.error = event['message']
+
+    def cancel(self):
+        if self.proc:
+            self.proc.kill()
+
+    def finished(self, on_done):
+        proc, self.proc = self.proc, None
+        cleanup(proc)
+        self.dialog.canceled.disconnect(self.cancel)
+        self.dialog.hide()
+        self.dialog.deleteLater()
+        if self.result:
+            on_done(self.result)
+        elif self.error:
+            QMessageBox.warning(self.window, 'Update', self.error[:400])
+
+    def checked(self, result):
+        current = update.version() or 'development'
+        if not result.get('newer'):
+            QMessageBox.information(self.window, 'Update', f'Voice Notes {current} is the latest version.')
+            return
+        notes = f"\n\n{result['notes'][:600]}" if result.get('notes') else ''
+        answer = QMessageBox.question(
+            self.window, 'Update available',
+            f"Voice Notes {result['latest']} is available (you have {current}).{notes}\n\n"
+            'Download and install it now? The app closes and reopens. Models, settings and notes are kept.')
+        if answer != QMessageBox.StandardButton.Yes or not self.ready():
+            return
+        self.start({'mode': 'get_update', 'asset': result['asset'], 'folder': str(app_data()/'update')},
+                   'Downloading update…', self.install)
+
+    def ready(self):
+        if self.window.job:
+            QMessageBox.information(self.window, 'Update', 'Finish or stop the current transcription first.')
+            return False
+        return True
+
+    def install(self, result):
+        if not self.ready():
+            return
+        if not QProcess.startDetached(result['path'], ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART']):
+            QMessageBox.warning(self.window, 'Update', 'Could not start the installer.')
+            return
+        log.info('Installing update')
+        self.window.close()
+        QApplication.quit()
 
 
 def main():
