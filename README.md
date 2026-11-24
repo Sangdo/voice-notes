@@ -12,6 +12,10 @@ make restart    # 실행 중인 앱을 끄고 다시 실행
 
 FFmpeg가 필요합니다 (`brew install ffmpeg`).
 
+### Windows 설치·업데이트
+
+GitHub **Releases**에서 `VoiceNotes-Setup.exe`를 받아 실행합니다(관리자 권한 불필요, 시작 메뉴에 등록). 새 버전도 같은 방법으로 설치하면 실행 중인 앱을 닫고 업데이트합니다. 모델·설정·노트·로그는 프로그램 폴더 밖에 있어 업데이트나 제거 후에도 남습니다. `main`에 코드를 올리면 GitHub Actions가 빌드·설치 테스트를 거쳐 새 릴리스를 만듭니다(`.github/workflows/build.yml`, `packaging/`).
+
 ## 사용
 
 1. 녹음 파일을 창에 끌어다 놓거나 **Open**을 누릅니다. mp3 등 녹음 파일 링크는 **File → Open URL…**(⌘L)에 붙여넣으면(여러 줄 가능) Downloads 폴더에 받은 뒤 바로 전사합니다. 여러 개를 한꺼번에 넣으면 대기열에 쌓여 차례로 전사됩니다(전사 중에 더 넣어도 됩니다). 이미 끝난 녹음은 건너뛰고, 중간에 멈춘 녹음은 이어서 전사합니다.

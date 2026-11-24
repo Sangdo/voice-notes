@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths: ['voice_notes/**', 'packaging/**', 'requirements.txt', '.github/workflows/build.yml']
 
+permissions:
+  contents: write   # publish the installer as a release
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -44,8 +47,33 @@ jobs:
           Get-Content selftest.txt, selftest-err.txt
           if ($p.ExitCode -ne 0) { exit 1 }
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Voice-Notes-Windows
-          path: dist/Voice Notes/
-          retention-days: 30
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /Q "/DAppVersion=1.0.${{ github.run_number }}" packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\VoiceNotes-Setup.exe | Format-List Name, Length
+
+      # Install for real, then install again over it (an update), and self-test the installed copy.
+      - name: Test install and update
+        shell: pwsh
+        run: |
+          foreach ($round in 1, 2) {
+            $p = Start-Process dist\VoiceNotes-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Write-Error "install $round failed: $($p.ExitCode)"; exit 1 }
+          }
+          $exe = "$env:LOCALAPPDATA\Programs\Voice Notes\Voice Notes.exe"
+          $p = Start-Process $exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow -RedirectStandardOutput installed.txt
+          Get-Content installed.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = "v1.0.${{ github.run_number }}"
+          $notes = "Windows: download VoiceNotes-Setup.exe and run it. Installing over an older version updates it; models, settings and notes are kept."
+          gh release create $version dist\VoiceNotes-Setup.exe --target ${{ github.sha }} --title "Voice Notes $version" --notes $notes
