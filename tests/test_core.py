@@ -92,6 +92,10 @@ def test_worker_reports_missing_model(tmp_path, monkeypatch):
     assert event['type'] == 'error' and 'Download it in Settings' in event['message']
     logged = (tmp_path/'voice-notes.log').read_text()
     assert 'Start transcribe' in logged and 'not downloaded yet' in logged
+    import csv
+    rows = list(csv.DictReader(open(tmp_path/'transcriptions.csv', encoding='utf-8-sig')))
+    assert len(rows) == 1 and rows[0]['task'] == 'transcribe' and rows[0]['result'] == 'failed'
+    assert 'not downloaded yet' in rows[0]['error'] and rows[0]['audio_type'] == 'wav'
 
 
 def test_notes_folder_keeps_same_named_recordings_apart(tmp_path):

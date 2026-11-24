@@ -14,6 +14,7 @@ import sys
 import time
 
 log = logging.getLogger('voice_notes.worker')
+STATS = {}   # filled by transcribe / identify_speakers, written to transcriptions.csv by main()
 
 
 def emit(kind, **payload):
@@ -66,6 +67,7 @@ def transcribe(job):
 
     emit('progress', stage='Reading audio', value=-1)
     duration = probe_duration(audio)
+    STATS.update(audio_sec=duration, model=spec.label)
     segments = []
     resume = 0.0
     names = {}
@@ -74,6 +76,7 @@ def transcribe(job):
         segments = previous['segments']
         names = previous['speakers']
         resume = segments[-1].end if segments else 0.0
+    STATS.update(from_sec=resume, lines=len(segments))
     emit('progress', stage='Preparing audio', value=-1)
     wav = work/'audio.wav'
     result = subprocess.run([tool('ffmpeg'), '-nostdin', '-v', 'error', '-ss', str(resume), '-i', str(audio),
@@ -82,13 +85,14 @@ def transcribe(job):
         raise RuntimeError('Could not convert the audio.\n' + result.stderr.strip()[-400:])
 
     emit('progress', stage=f'Loading {spec.label}', value=-1)
-    saved = time.monotonic()
+    saved = loading = time.monotonic()
     label = f'{spec.label}'
 
     def on_device(dev):
         nonlocal label
         log.info('Transcribing on %s · %s', engine.DEVICE_NAMES.get(dev, dev), spec.label)
         label = f'{spec.label} · {engine.DEVICE_NAMES.get(dev, dev)}'
+        STATS.update(device=engine.DEVICE_NAMES.get(dev, dev), startup_sec=round(time.monotonic() - loading))
         emit('device', device=dev)
         emit('progress', stage='Transcribing', value=resume/duration if duration else -1)
 
@@ -96,6 +100,7 @@ def transcribe(job):
                                               hint=job.get('hint', ''), on_device=on_device):
         seg = Segment(round(start+resume, 2), round(end+resume, 2), text)
         segments.append(seg)
+        STATS['lines'] = len(segments)
         emit('segment', start=seg.start, end=seg.end, text=seg.text)
         emit('progress', stage='Transcribing', value=min(1.0, seg.end/duration) if duration else -1)
         if time.monotonic() - saved > 20:
@@ -123,6 +128,7 @@ def identify_speakers(job):
     if result.returncode:
         raise RuntimeError('Could not convert the audio.\n' + result.stderr.strip()[-400:])
     samples = speakers.read_wav(wav)
+    STATS.update(audio_sec=len(samples)/speakers.SAMPLE_RATE, device='CPU', model='speakers')
     segments = load(notes)['segments']
     labels = speakers.identify(samples, segments,
                                on_progress=lambda v: emit('progress', stage='Identifying speakers', value=v))
@@ -353,6 +359,12 @@ def describe(job):
     return ' · '.join(parts)
 
 
+def record(task, result, started, job, **fields):
+    from . import stats
+    stats.record(task, result, seconds=time.monotonic() - started, **stats.audio_info(job.get('audio')),
+                 **STATS, **fields)
+
+
 def main():
     from . import log as logfile
     job = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
@@ -365,15 +377,20 @@ def main():
         pass   # logging must never stop the work
     started = time.monotonic()
     log.info('Start %s', describe(job))
+    task = {'transcribe': 'transcribe', 'speakers': 'speakers'}.get(job['mode'])
     try:
         {'transcribe': transcribe, 'download': download, 'fetch': fetch, 'summarize': summarize,
          'speakers': identify_speakers, 'check_update': check_update, 'get_update': get_update}[job['mode']](job)
         log.info('Finished %s in %.0f s', job['mode'], time.monotonic() - started)
+        if task:
+            record(task, 'done', started, job)
     except SystemExit as e:
         log.info('Stopped %s after %.0f s (code %s)', job['mode'], time.monotonic() - started, e.code)
         raise
     except Exception as e:
         log.exception('Failed %s after %.0f s', job['mode'], time.monotonic() - started)
+        if task:
+            record(task, 'failed', started, job, error=str(e) or type(e).__name__)
         emit('error', message=str(e) or type(e).__name__)
         sys.exit(1)
     finally:

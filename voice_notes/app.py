@@ -24,6 +24,7 @@ from . import models, theme
 from .engine import DEVICE_NAMES, apple_gpu
 from . import gpu
 from . import log as logfile
+from . import stats
 from . import update
 from .summarize import load_summary, summary_path
 from .icons import icon
@@ -948,6 +949,8 @@ class Window(QMainWindow):
         file_menu.addAction(self.reveal_action)
         help_menu = self.menuBar().addMenu('Help')
         help_menu.addAction('Show Log File', lambda: reveal(logfile.path()))
+        help_menu.addAction('Show Statistics File',
+                            lambda: reveal(stats.path() if stats.path().is_file() else logfile.path()))
         if update.supported():
             help_menu.addAction('Check for Updates…', self.updater.check)
         help_menu.addSeparator()
@@ -1524,6 +1527,7 @@ class Window(QMainWindow):
         self.job.finished.connect(self.on_finished)
         self.job_error = ''
         self.job_model = spec.label
+        self.job_device = ''
         self.job_auto = auto or bool(self.queue)
         self.job_stopped = False
         self.stack.setCurrentIndex(1)
@@ -1544,6 +1548,7 @@ class Window(QMainWindow):
             elif kind == 'progress':
                 self.set_progress(event['value'], event['stage'])
             elif kind == 'device':
+                self.job_device = DEVICE_NAMES.get(event['device'], event['device'])
                 self.job_model = f"{self.job_model.split(' · ')[0]} · {DEVICE_NAMES.get(event['device'], event['device'])}"
             elif kind == 'done':
                 self.meta['model'] = event['model']
@@ -1673,6 +1678,11 @@ class Window(QMainWindow):
                 QMessageBox.warning(self, 'Transcription failed', self.job_error)
         else:
             self.status.setText(f'Stopped · {lines(len(self.segments))} saved · click “Resume” to continue.')
+            # Done and failed jobs are recorded by the worker; a killed worker cannot record itself.
+            stats.record('transcribe', 'stopped' if self.job_stopped else 'crashed',
+                         seconds=time.monotonic() - self.job_started, audio_sec=self.player_seconds() or None,
+                         from_sec=self.job_from, device=self.job_device, model=self.job_model.split(' · ')[0],
+                         lines=len(self.segments), **stats.audio_info(self.audio))
         if self.audio:
             self.meta['duration'] = self.player_seconds()
             self.meta.setdefault('model', self.job_model)
@@ -1849,6 +1859,7 @@ class Window(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+            self.job_stopped = True
             self.job.kill()
             self.job.waitForFinished(3000)
         if self.fetch:

@@ -50,6 +50,24 @@ GitHub **Releases**에서 `VoiceNotes-Setup.exe`를 받아 실행합니다(관�
 
 작업 시작·끝·걸린 시간, 사용한 장치(GPU/CPU)와 GPU를 못 쓴 이유, 오류 전체 내용, 비정상 종료 위치가 남습니다. 녹음 파일 이름과 전사 내용은 남기지 않습니다(형식·크기만, 오류 메시지 속 경로는 `<audio>`로 바꿈). 2 MB가 넘으면 다음 실행 때 `voice-notes.old.log`로 옮깁니다.
 
+### 전사 통계
+
+전사와 화자 구분이 끝날 때마다(완료·실패·중지 모두) 같은 폴더의 `transcriptions.csv`에 한 줄이 쌓입니다. **Help → Show Statistics File**로 열고, 엑셀에서 바로 집계할 수 있습니다.
+
+| 열 | 내용 |
+|---|---|
+| `date`, `time` | 끝난 날짜·시각 |
+| `task`, `result` | `transcribe`/`speakers`, `done`/`failed`/`stopped`/`crashed` |
+| `audio_min`, `processed_min` | 녹음 길이, 이번에 처리한 길이(이어하기면 남은 부분만) |
+| `took_min`, `speed_x` | 걸린 시간, 속도(처리한 녹음 길이 ÷ 걸린 시간) |
+| `device`, `model`, `lines` | Mac GPU / NVIDIA GPU / CPU, 모델, 줄 수 |
+| `startup_sec` | 모델을 올리고 전사를 시작하기까지 걸린 시간 |
+| `audio_type`, `audio_mb` | 파일 형식·크기 |
+| `app`, `os`, `cpu`, `gpu` | 앱 버전, 운영체제, 컴퓨터 사양 |
+| `error` | 실패 이유(파일 이름은 `<audio>`로 바꿈) |
+
+로그와 마찬가지로 녹음 파일 이름과 전사 내용은 남기지 않습니다.
+
 ## 개인정보 · 오프라인
 
 - 전사와 요약은 별도 프로세스에서 실행되며, 시작 시 `voice_notes/offline.py`가 루프백 외의 모든 네트워크 연결과 DNS 조회를 차단합니다. Hugging Face도 오프라인 모드로 고정됩니다.
